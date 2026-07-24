@@ -12,9 +12,9 @@ const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_ANO
 // OAuth 2.0 認可プロバイダーの設定 (sennin-acount.onrender.com)
 const OAUTH_CONFIG = {
   providerUrl: process.env.OAUTH_PROVIDER_URL || 'https://sennin-acount.onrender.com',
-  clientId: process.env.OAUTH_CLIENT_ID || 'your-client-id',
-  clientSecret: process.env.OAUTH_CLIENT_SECRET || 'your-client-secret',
-  redirectUri: process.env.OAUTH_REDIRECT_URI || 'http://localhost:3000/api/auth/callback'
+  clientId: process.env.OAUTH_CLIENT_ID || 'client_89f7dcfbd6e397a2',
+  clientSecret: process.env.OAUTH_CLIENT_SECRET || 'secret_be89e49969411eaa079f766ce74dcbc2',
+  redirectUri: process.env.OAUTH_REDIRECT_URI || 'https://senninchat9ok.onrender.com/api/auth/callback'
 };
 
 app.use(cors());
