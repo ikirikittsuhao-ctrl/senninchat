@@ -1,0 +1,52 @@
+-- 1. Profiles テーブル（ユーザー情報）
+create table public.profiles (
+  id uuid references auth.users on delete cascade primary key,
+  user_code text unique not null, -- フレンド追加用コード (例: USER-8A2F)
+  name text not null,
+  status_msg text default '',
+  avatar_url text default 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=100&auto=format&fit=crop',
+  created_at timestamp with time zone default timezone('utc'::text, now()) not null
+);
+
+-- 2. Friendships テーブル（友達関係）
+create table public.friendships (
+  id uuid default gen_random_uuid() primary key,
+  user_id uuid references public.profiles(id) on delete cascade not null,
+  friend_id uuid references public.profiles(id) on delete cascade not null,
+  created_at timestamp with time zone default timezone('utc'::text, now()) not null,
+  unique(user_id, friend_id)
+);
+
+-- 3. Messages テーブル（トーク履歴）
+create table public.messages (
+  id uuid default gen_random_uuid() primary key,
+  sender_id uuid references public.profiles(id) on delete cascade not null,
+  receiver_id uuid references public.profiles(id) on delete cascade not null,
+  content text default '',
+  image_url text default null,
+  is_read boolean default false,
+  created_at timestamp with time zone default timezone('utc'::text, now()) not null
+);
+
+-- RLS (Row Level Security) の設定
+alter table public.profiles enable row level security;
+alter table public.friendships enable row level security;
+alter table public.messages enable row level security;
+
+-- 読み書きポリシー（簡易開発用）
+create policy "Public Profiles Access" on public.profiles for select using (true);
+create policy "User Profile Update" on public.profiles for update using (auth.uid() = id);
+
+create policy "Friendships Select" on public.friendships for select using (auth.uid() = user_id or auth.uid() = friend_id);
+create policy "Friendships Insert" on public.friendships for insert with check (auth.uid() = user_id);
+
+create policy "Messages Access" on public.messages for select using (auth.uid() = sender_id or auth.uid() = receiver_id);
+create policy "Messages Insert" on public.messages for insert with check (auth.uid() = sender_id);
+
+-- Realtimeの有効化
+alter publication supabase_realtime add table public.messages;
+
+-- ストレージバケット作成 (アバター・画像送信用)
+insert into storage.buckets (id, name, public) values ('chat-media', 'chat-media', true);
+create policy "Media Public Select" on storage.objects for select using (bucket_id = 'chat-media');
+create policy "Media Upload" on storage.objects for insert with check (bucket_id = 'chat-media' and auth.role() = 'authenticated');
