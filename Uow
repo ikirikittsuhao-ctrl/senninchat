@@ -14,10 +14,10 @@ create table public.friendships (
   user_id uuid references public.profiles(id) on delete cascade not null,
   friend_id uuid references public.profiles(id) on delete cascade not null,
   created_at timestamp with time zone default timezone('utc'::text, now()) not null,
-  unique(user_id, friend_id)
+  constraint unique_friendship unique(user_id, friend_id),
+  constraint no_self_friend check (user_id <> friend_id) -- 自分自身とのフレンド化を防止
 );
 
--- 3. Messages テーブル（トーク履歴）
 create table public.messages (
   id uuid default gen_random_uuid() primary key,
   sender_id uuid references public.profiles(id) on delete cascade not null,
@@ -28,25 +28,75 @@ create table public.messages (
   created_at timestamp with time zone default timezone('utc'::text, now()) not null
 );
 
--- RLS (Row Level Security) の設定
+-- RLS (Row Level Security) の有効化
 alter table public.profiles enable row level security;
 alter table public.friendships enable row level security;
 alter table public.messages enable row level security;
 
--- 読み書きポリシー（簡易開発用）
-create policy "Public Profiles Access" on public.profiles for select using (true);
-create policy "User Profile Update" on public.profiles for update using (auth.uid() = id);
+-- ================================================
+-- RLS ポリシー設定
+-- ================================================
 
-create policy "Friendships Select" on public.friendships for select using (auth.uid() = user_id or auth.uid() = friend_id);
-create policy "Friendships Insert" on public.friendships for insert with check (auth.uid() = user_id);
+-- Profiles ポリシー
+create policy "Public Profiles Access" on public.profiles 
+  for select using (true);
 
-create policy "Messages Access" on public.messages for select using (auth.uid() = sender_id or auth.uid() = receiver_id);
-create policy "Messages Insert" on public.messages for insert with check (auth.uid() = sender_id);
+create policy "User Profile Insert" on public.profiles 
+  for insert with check (auth.uid() = id);
+
+create policy "User Profile Update" on public.profiles 
+  for update using (auth.uid() = id);
+
+create policy "Friendships Select" on public.friendships 
+  for select using (auth.uid() = user_id or auth.uid() = friend_id);
+
+create policy "Friendships Insert" on public.friendships 
+  for insert with check (auth.uid() = user_id);
+
+create policy "Friendships Delete" on public.friendships 
+  for delete using (auth.uid() = user_id or auth.uid() = friend_id);
+
+create policy "Messages Access" on public.messages 
+  for select using (auth.uid() = sender_id or auth.uid() = receiver_id);
+
+create policy "Messages Insert" on public.messages 
+  for insert with check (auth.uid() = sender_id);
+
+create policy "Messages Update" on public.messages 
+  for update using (auth.uid() = receiver_id or auth.uid() = sender_id); -- 既読フラグ(is_read)の更新用
 
 -- Realtimeの有効化
 alter publication supabase_realtime add table public.messages;
 
--- ストレージバケット作成 (アバター・画像送信用)
-insert into storage.buckets (id, name, public) values ('chat-media', 'chat-media', true);
-create policy "Media Public Select" on storage.objects for select using (bucket_id = 'chat-media');
-create policy "Media Upload" on storage.objects for insert with check (bucket_id = 'chat-media' and auth.role() = 'authenticated');
+insert into storage.buckets (id, name, public) 
+values ('chat-media', 'chat-media', true)
+on conflict (id) do nothing;
+
+create policy "Media Public Select" on storage.objects 
+  for select using (bucket_id = 'chat-media');
+
+create policy "Media Upload" on storage.objects 
+  for insert with check (
+    bucket_id = 'chat-media' 
+    and auth.role() = 'authenticated'
+  );
+
+
+create or replace function public.handle_new_user()
+returns trigger as $$
+begin
+  insert into public.profiles (id, user_code, name, avatar_url)
+  values (
+    new.id,
+    'USER-' || upper(substring(md5(random()::text) from 1 for 6)), -- ランダムコード生成
+    coalesce(new.raw_user_meta_data->>'name', 'ユーザー'),
+    coalesce(new.raw_user_meta_data->>'avatar_url', 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=100&auto=format&fit=crop')
+  );
+  return new;
+end;
+$$ language plpgsql security definer;
+
+drop trigger if exists on_auth_user_created on auth.users;
+create trigger on_auth_user_created
+  after insert on auth.users
+  for each row execute procedure public.handle_new_user();
