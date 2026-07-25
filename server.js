@@ -3,13 +3,16 @@ const express = require('express');
 const cors = require('cors');
 const path = require('path');
 const { createClient } = require('@supabase/supabase-js');
+const crypto = require('crypto');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_ANON_KEY);
+// ★重要: RLSをバイパスするため、バックエンドでは SERVICE_ROLE_KEY を使用します
+// (.env に SUPABASE_SERVICE_ROLE_KEY を設定してください。無ければ ANON_KEY で動作しますがRLS調整が必要)
+const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY;
+const supabase = createClient(process.env.SUPABASE_URL, supabaseKey);
 
-// OAuth 2.0 認可プロバイダーの設定 (sennin-acount.onrender.com)
 const OAUTH_CONFIG = {
   providerUrl: process.env.OAUTH_PROVIDER_URL || 'https://sennin-acount.onrender.com',
   clientId: process.env.OAUTH_CLIENT_ID || 'client_89f7dcfbd6e397a2',
@@ -21,7 +24,6 @@ app.use(cors());
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
 
-// 設定情報をフロントエンドに渡すAPI
 app.get('/api/config', (req, res) => {
   res.json({
     supabaseUrl: process.env.SUPABASE_URL,
@@ -30,27 +32,7 @@ app.get('/api/config', (req, res) => {
   });
 });
 
-// 新規ユーザー初期化ヘルパーAPI
-app.post('/api/register-profile', async (req, res) => {
-  const { userId, name } = req.body;
-  if (!userId || !name) return res.status(400).json({ error: 'Missing parameters' });
-
-  // ランダムなユーザーコード発行 (例: USER-A1B2)
-  const userCode = 'USER-' + Math.random().toString(36).substring(2, 6).toUpperCase();
-
-  const { data, error } = await supabase.from('profiles').upsert([
-    { id: userId, name: name, user_code: userCode }
-  ]).select();
-
-  if (error) return res.status(500).json({ error: error.message });
-  res.json({ success: true, profile: data[0] });
-});
-
-// =================================================================
-// OAuth 2.0 (認可コードフロー) 認証エンドポイント
-// =================================================================
-
-// 1. OAuth 認可画面へのリダイレクト
+// OAuth ログイン開始
 app.get('/api/auth/login', (req, res) => {
   const authorizeUrl = new URL(`${OAUTH_CONFIG.providerUrl}/oauth/authorize`);
   authorizeUrl.searchParams.append('client_id', OAUTH_CONFIG.clientId);
@@ -60,16 +42,17 @@ app.get('/api/auth/login', (req, res) => {
   res.redirect(authorizeUrl.toString());
 });
 
-// 2. OAuth コールバック処理 (code 交換 -> トークン取得 -> ユーザー情報同期)
+// OAuth コールバック
 app.get('/api/auth/callback', async (req, res) => {
   const { code, error } = req.query;
 
   if (error || !code) {
-    return res.status(400).send('OAuth 認証エラー: 認可コードを取得できませんでした。');
+    console.error('OAuth Code Error:', error);
+    return res.redirect('/?error=oauth_code_failed');
   }
 
   try {
-    // 2a. 認可コード (code) を Access Token と交換
+    // 1. アクセストークン取得
     const tokenResponse = await fetch(`${OAUTH_CONFIG.providerUrl}/oauth/token`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
@@ -82,46 +65,57 @@ app.get('/api/auth/callback', async (req, res) => {
     });
 
     if (!tokenResponse.ok) {
-      const errData = await tokenResponse.json();
-      return res.status(401).json({ error: 'トークン交換に失敗しました', details: errData });
+      console.error('Token Exchange Failed');
+      return res.redirect('/?error=token_exchange_failed');
     }
 
     const tokenData = await tokenResponse.json();
-    const accessToken = tokenData.access_token;
 
-    // 2b. Access Token を使ってユーザー情報を取得
+    // 2. ユーザー情報取得
     const userinfoResponse = await fetch(`${OAUTH_CONFIG.providerUrl}/oauth/userinfo`, {
-      headers: {
-        Authorization: `Bearer ${accessToken}`
-      }
+      headers: { Authorization: `Bearer ${tokenData.access_token}` }
     });
 
     if (!userinfoResponse.ok) {
-      return res.status(401).send('ユーザー情報の取得に失敗しました。');
+      return res.redirect('/?error=userinfo_failed');
     }
 
     const oauthUser = await userinfoResponse.json();
 
-    // 2c. ユーザー情報を Supabase プロファイルテーブルに同期 (Upsert)
-    const userCode = 'USER-' + oauthUser.id.substring(0, 4).toUpperCase();
-    const { error: profileError } = await supabase.from('profiles').upsert([
-      {
-        id: oauthUser.id,
-        name: oauthUser.username || oauthUser.email.split('@')[0],
-        user_code: userCode,
-        avatar_url: `https://api.dicebear.com/7.x/bottts/svg?seed=${oauthUser.id}`
-      }
-    ]);
-
-    if (profileError) {
-      console.error('Profile sync error:', profileError);
+    // 3. UUID 形式のチェック / 確定
+    // (OAuthプロバイダーのIDがUUIDでない場合、決められたハッシュUUIDを生成)
+    let validUserId = oauthUser.id;
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-5][0-9a-f]{3}-[089ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+    
+    if (!uuidRegex.test(validUserId)) {
+      // 文字列から固定のUUIDを作成
+      validUserId = crypto.createHash('md5').update(String(oauthUser.id)).digest('hex');
+      validUserId = `${validUserId.substr(0,8)}-${validUserId.substr(8,4)}-4${validUserId.substr(13,3)}-a${validUserId.substr(17,3)}-${validUserId.substr(20,12)}`;
     }
 
-    // クライアント側へ認証完了情報 (userId) を渡すためにリダイレクト
-    res.redirect(`/?oauth_user_id=${encodeURIComponent(oauthUser.id)}`);
+    // 4. Profiles に登録 / 更新
+    const userCode = 'USER-' + String(oauthUser.id).substring(0, 4).toUpperCase();
+    const userName = oauthUser.username || (oauthUser.email ? oauthUser.email.split('@')[0] : 'User');
+
+    const { error: profileError } = await supabase.from('profiles').upsert([
+      {
+        id: validUserId,
+        name: userName,
+        user_code: userCode,
+        avatar_url: `https://api.dicebear.com/7.x/bottts/svg?seed=${validUserId}`
+      }
+    ], { onConflict: 'id' });
+
+    if (profileError) {
+      console.error('Profile Upsert Error:', profileError);
+    }
+
+    // ログイン成功 -> フロントへリダイレクト
+    res.redirect(`/?oauth_user_id=${encodeURIComponent(validUserId)}`);
+
   } catch (err) {
-    console.error('OAuth Auth Callback Error:', err);
-    res.status(500).send('OAuth 認証処理中にサーバーエラーが発生しました。');
+    console.error('OAuth Callback Error:', err);
+    res.redirect('/?error=server_error');
   }
 });
 
