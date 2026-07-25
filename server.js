@@ -8,8 +8,7 @@ const crypto = require('crypto');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// ★重要: RLSをバイパスするため、バックエンドでは SERVICE_ROLE_KEY を使用します
-// (.env に SUPABASE_SERVICE_ROLE_KEY を設定してください。無ければ ANON_KEY で動作しますがRLS調整が必要)
+// RLSをバイパスするために SERVICE_ROLE_KEY を優先使用
 const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY;
 const supabase = createClient(process.env.SUPABASE_URL, supabaseKey);
 
@@ -48,7 +47,7 @@ app.get('/api/auth/callback', async (req, res) => {
 
   if (error || !code) {
     console.error('OAuth Code Error:', error);
-    return res.redirect('/?error=oauth_code_failed');
+    return res.redirect('/index.html?error=oauth_code_failed');
   }
 
   try {
@@ -66,7 +65,7 @@ app.get('/api/auth/callback', async (req, res) => {
 
     if (!tokenResponse.ok) {
       console.error('Token Exchange Failed');
-      return res.redirect('/?error=token_exchange_failed');
+      return res.redirect('/index.html?error=token_exchange_failed');
     }
 
     const tokenData = await tokenResponse.json();
@@ -77,18 +76,16 @@ app.get('/api/auth/callback', async (req, res) => {
     });
 
     if (!userinfoResponse.ok) {
-      return res.redirect('/?error=userinfo_failed');
+      return res.redirect('/index.html?error=userinfo_failed');
     }
 
     const oauthUser = await userinfoResponse.json();
 
     // 3. UUID 形式のチェック / 確定
-    // (OAuthプロバイダーのIDがUUIDでない場合、決められたハッシュUUIDを生成)
     let validUserId = oauthUser.id;
     const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-5][0-9a-f]{3}-[089ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
     
     if (!uuidRegex.test(validUserId)) {
-      // 文字列から固定のUUIDを作成
       validUserId = crypto.createHash('md5').update(String(oauthUser.id)).digest('hex');
       validUserId = `${validUserId.substr(0,8)}-${validUserId.substr(8,4)}-4${validUserId.substr(13,3)}-a${validUserId.substr(17,3)}-${validUserId.substr(20,12)}`;
     }
@@ -110,12 +107,12 @@ app.get('/api/auth/callback', async (req, res) => {
       console.error('Profile Upsert Error:', profileError);
     }
 
-    // ログイン成功 -> フロントへリダイレクト
-    res.redirect(`/?oauth_user_id=${encodeURIComponent(validUserId)}`);
+    // ★重要: アプリ画面 (/app.html) へユーザーID付きでリダイレクトします
+    res.redirect(`/app.html?oauth_user_id=${encodeURIComponent(validUserId)}`);
 
   } catch (err) {
     console.error('OAuth Callback Error:', err);
-    res.redirect('/?error=server_error');
+    res.redirect('/index.html?error=server_error');
   }
 });
 
