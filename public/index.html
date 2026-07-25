@@ -3,92 +3,43 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Line Style App - Supabase Realtime</title>
-
-  <!-- External Libraries -->
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" />
-  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
-  <script src="https://unpkg.com/html5-qrcode"></script>
-
+  <title>Line Style App - ログイン</title>
   <style>
     :root {
       --primary-accent: #4A90E2;
-      --primary-light: #EBF3FA;
-      --line-bg: #E3EDF7;
-      --header-bg: #F8FAFC;
-      --my-msg-bg: #CCE2FF;
-      --other-msg-bg: #FFFFFF;
-      --text-main: #1E293B;
-      --text-sub: #64748B;
       --border-color: #E2E8F0;
+      --text-sub: #64748B;
       --font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
     }
 
     * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
-    html, body { width: 100%; height: 100%; overflow: hidden; font-family: var(--font-family); background-color: #FFFFFF; color: var(--text-main); }
-
-    .app-container { width: 100vw; height: 100vh; display: flex; flex-direction: column; position: relative; overflow: hidden; }
+    html, body { width: 100%; height: 100%; overflow: hidden; font-family: var(--font-family); background-color: #FFFFFF; }
 
     /* Auth Screen */
-    #auth-screen { position: fixed; inset: 0; background: #FFFFFF; z-index: 10000; display: flex; flex-direction: column; justify-content: center; align-items: center; padding: 24px; gap: 16px; }
-    #auth-screen input { width: 100%; max-width: 320px; padding: 12px 16px; border: 1px solid var(--border-color); border-radius: 8px; font-size: 14px; outline: none; }
-    #auth-screen button { width: 100%; max-width: 320px; padding: 12px; background: #4F46E5; color: white; border: none; border-radius: 8px; font-weight: bold; cursor: pointer; font-size: 15px; position: relative; z-index: 10001; }
-
-    /* Modals */
-    .modal { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.5); z-index: 500; justify-content: center; align-items: center; padding: 20px; }
-    .modal.active { display: flex; }
-    .modal-content { background: white; padding: 24px; border-radius: 16px; width: 100%; max-width: 360px; display: flex; flex-direction: column; gap: 16px; text-align: center; }
-    .modal-content input { padding: 10px; border: 1px solid var(--border-color); border-radius: 8px; }
-    .modal-content button { padding: 10px; background: var(--primary-accent); color: white; border: none; border-radius: 8px; cursor: pointer; }
-
-    /* Header & Views */
-    .main-header { height: 56px; padding: 0 20px; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid var(--border-color); background: var(--header-bg); }
-    .main-header .title { font-size: 18px; font-weight: 700; }
-    .header-icons { display: flex; gap: 16px; color: var(--text-sub); }
-    .header-icons span { cursor: pointer; }
-
-    .view-content { flex: 1; overflow-y: auto; display: none; flex-direction: column; position: absolute; top: 0; left: 0; width: 100%; height: calc(100% - 60px); background: #FFF; z-index: 1; }
-    .view-content.active { display: flex; z-index: 2; }
-
-    /* Lists & Cards */
-    .profile-card { display: flex; align-items: center; padding: 20px; gap: 16px; border-bottom: 1px solid var(--border-color); }
-    .profile-avatar { width: 56px; height: 56px; border-radius: 22px; background: #E2E8F0; object-fit: cover; }
-    .section-title { font-size: 12px; font-weight: 700; color: var(--text-sub); padding: 16px 20px 8px; }
-
-    .chat-item, .list-item { display: flex; align-items: center; padding: 14px 20px; gap: 14px; cursor: pointer; border-bottom: 1px solid #F1F5F9; }
-    .chat-item:hover { background: var(--primary-light); }
-    .chat-avatar { width: 48px; height: 48px; border-radius: 18px; background: #CBD5E1; object-fit: cover; }
-    .chat-details { flex: 1; display: flex; flex-direction: column; gap: 4px; overflow: hidden; }
-    .chat-top-row { display: flex; justify-content: space-between; font-size: 14px; font-weight: bold; }
-    .chat-time { font-size: 11px; color: var(--text-sub); font-weight: normal; }
-    .last-msg { font-size: 13px; color: var(--text-sub); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-
-    /* Talk Room View */
-    #talk-room-view { background-color: var(--line-bg); height: 100%; }
-    .chat-header { height: 56px; background: rgba(255,255,255,0.9); display: flex; align-items: center; justify-content: space-between; padding: 0 16px; border-bottom: 1px solid var(--border-color); }
-    .chat-body { flex: 1; overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 12px; }
-
-    .msg-row { display: flex; align-items: flex-start; gap: 8px; max-width: 75%; }
-    .msg-row.other { align-self: flex-start; }
-    .msg-row.me { align-self: flex-end; flex-direction: row-reverse; }
-    .bubble { padding: 10px 14px; font-size: 14px; line-height: 1.4; color: var(--text-main); border-radius: 16px; word-break: break-all; }
-    .other .bubble { background: var(--other-msg-bg); border-top-left-radius: 2px; }
-    .me .bubble { background: var(--my-msg-bg); border-top-right-radius: 2px; }
-    .bubble img { max-width: 200px; border-radius: 8px; margin-top: 4px; display: block; }
-    .msg-meta { font-size: 10px; color: var(--text-sub); align-self: flex-end; }
-
-    .chat-footer { background: #FFF; padding: 10px 16px; display: flex; align-items: center; gap: 10px; border-top: 1px solid var(--border-color); }
-    .input-box { flex: 1; background: #F1F5F9; border: none; border-radius: 20px; padding: 10px 16px; outline: none; font-size: 14px; }
-
-    /* Navigation */
-    .bottom-nav { height: 60px; background: #FFF; border-top: 1px solid var(--border-color); display: flex; position: absolute; bottom: 0; width: 100%; z-index: 100; }
-    .nav-item { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; color: #94A3B8; background: none; border: none; cursor: pointer; }
-    .nav-item.active { color: var(--primary-accent); }
-    .nav-label { font-size: 10px; font-weight: 600; }
-
-    .material-symbols-outlined { font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24; }
-    .active .material-symbols-outlined { font-variation-settings: 'FILL' 1; }
+    #auth-screen { 
+      position: absolute; 
+      inset: 0; 
+      background: #FFFFFF; 
+      z-index: 1000; 
+      display: flex; 
+      flex-direction: column; 
+      justify-content: center; 
+      align-items: center; 
+      padding: 24px; 
+      gap: 16px; 
+    }
+    #auth-screen button { 
+      width: 100%; 
+      max-width: 320px; 
+      padding: 14px; 
+      background: #4F46E5; 
+      color: white; 
+      border: none; 
+      border-radius: 8px; 
+      font-weight: bold; 
+      font-size: 15px; 
+      cursor: pointer; 
+    }
   </style>
 </head>
 <body>
@@ -99,397 +50,28 @@
     <p style="font-size: 13px; color: var(--text-sub); text-align: center;">
       認証プロバイダー (https://sennin-acount.onrender.com/) を利用してログインします。
     </p>
-    <button type="button" id="oauth-login-btn" onclick="handleOAuthLogin()">
+    <button onclick="handleOAuthLogin()">
       OAuth 2.0 でログイン
     </button>
   </div>
 
-  <div class="app-container">
-
-    <!-- 1. ホーム画面 -->
-    <div id="home-view" class="view-content active">
-      <header class="main-header">
-        <span class="title">ホーム</span>
-        <div class="header-icons">
-          <span class="material-symbols-outlined" onclick="showAddFriendModal()">person_add</span>
-          <span class="material-symbols-outlined" onclick="showMyQrModal()">qr_code_2</span>
-        </div>
-      </header>
-
-      <div class="profile-card">
-        <img id="my-avatar" class="profile-avatar" src="" alt="Avatar">
-        <div>
-          <div id="my-name" style="font-weight: bold;">Loading...</div>
-          <div id="my-code" style="font-size: 12px; color: var(--text-sub);">ID: ----</div>
-        </div>
-      </div>
-
-      <div class="section-title">友達リスト (<span id="friend-count">0</span>)</div>
-      <div id="friend-list"></div>
-    </div>
-
-    <!-- 2. トーク一覧画面 -->
-    <div id="chats-view" class="view-content">
-      <header class="main-header">
-        <span class="title">トーク</span>
-      </header>
-      <div id="recent-chats-list"></div>
-    </div>
-
-    <!-- 3. 個別トーク画面 -->
-    <div id="talk-room-view" class="view-content">
-      <header class="chat-header">
-        <div style="display:flex; align-items:center; gap:8px;">
-          <button style="border:none; background:none; cursor:pointer;" onclick="closeTalkRoom()">
-            <span class="material-symbols-outlined">arrow_back_ios</span>
-          </button>
-          <span id="talk-user-name" style="font-weight:700;">----</span>
-        </div>
-      </header>
-
-      <main class="chat-body" id="chat-body"></main>
-
-      <footer class="chat-footer">
-        <label style="cursor:pointer;">
-          <span class="material-symbols-outlined" style="color:var(--text-sub);">image</span>
-          <input type="file" id="image-upload" accept="image/*" style="display:none;" onchange="uploadAndSendImage(event)">
-        </label>
-        <input type="text" class="input-box" id="msg-input" placeholder="メッセージを入力" onkeypress="handleKeyPress(event)">
-        <button style="border:none; background:none; color:var(--primary-accent); cursor:pointer;" onclick="sendMessage()">
-          <span class="material-symbols-outlined">send</span>
-        </button>
-      </footer>
-    </div>
-
-    <!-- ボトムナビゲーション -->
-    <nav class="bottom-nav">
-      <button class="nav-item active" onclick="switchTab('home-view', this)">
-        <span class="material-symbols-outlined">home</span>
-        <span class="nav-label">ホーム</span>
-      </button>
-      <button class="nav-item" onclick="switchTab('chats-view', this)">
-        <span class="material-symbols-outlined">chat_bubble</span>
-        <span class="nav-label">トーク</span>
-      </button>
-    </nav>
-  </div>
-
-  <!-- フレンド追加モーダル -->
-  <div id="add-friend-modal" class="modal">
-    <div class="modal-content">
-      <h3>フレンド追加</h3>
-      <input type="text" id="friend-code-input" placeholder="ユーザーID (例: USER-A1B2)">
-      <button onclick="addFriendByCode()">IDで検索して追加</button>
-      <hr>
-      <button onclick="startQrScanner()" style="background:#22C55E;">QRコードで追加</button>
-      <div id="qr-reader" style="width:100%; display:none;"></div>
-      <button onclick="closeModal('add-friend-modal')" style="background:#64748B;">閉じる</button>
-    </div>
-  </div>
-
-  <!-- 自分のQRコード表示モーダル -->
-  <div id="my-qr-modal" class="modal">
-    <div class="modal-content">
-      <h3>マイQRコード</h3>
-      <div id="qrcode" style="display:flex; justify-content:center;"></div>
-      <p id="my-qr-code-text" style="font-size:12px; color:var(--text-sub);"></p>
-      <button onclick="closeModal('my-qr-modal')" style="background:#64748B;">閉じる</button>
-    </div>
-  </div>
-
   <script>
-    let supabase, currentUser, currentProfile, activeTargetUser;
-    let realtimeChannel;
-
-    // 初期化関数
-    async function init() {
-      try {
-        const res = await fetch('/api/config');
-        const config = await res.json();
-        supabase = window.supabase.createClient(config.supabaseUrl, config.supabaseAnonKey);
-
-        // URL クエリパラメータから OAuth リダイレクト結果の処理
-        const urlParams = new URLSearchParams(window.location.search);
-        const oauthUserId = urlParams.get('oauth_user_id');
-
-        if (oauthUserId) {
-          localStorage.setItem('oauth_user_id', oauthUserId);
-          window.history.replaceState({}, document.title, window.location.pathname);
-        }
-
-        const savedUserId = localStorage.getItem('oauth_user_id');
-
-        if (savedUserId) {
-          currentUser = { id: savedUserId };
-          const profileLoaded = await loadProfile();
-          if (profileLoaded) {
-            document.getElementById('auth-screen').style.display = 'none';
-            setupRealtimeSubscription();
-          } else {
-            localStorage.removeItem('oauth_user_id');
-          }
-        }
-      } catch (err) {
-        console.error('Initialization error:', err);
+    // 既にログイン済みの場合はメイン画面へリダイレクト
+    window.onload = () => {
+      const savedUserId = localStorage.getItem('oauth_user_id');
+      if (savedUserId) {
+        window.location.href = '/app.html';
       }
-    }
+    };
 
-    // OAuth ログイン開始リダイレクト（確実な位置指定移動を実施）
+    // OAuth ログイン開始リダイレクト
     function handleOAuthLogin() {
-      window.location.assign('/api/auth/login');
+      window.location.href = '/api/auth/login';
     }
 
     // 従来のローカル認証ハンドラー (OAuthへ移行)
     async function handleSignUp() { handleOAuthLogin(); }
     async function handleLogin() { handleOAuthLogin(); }
-
-    // プロフィール読み込み
-    async function loadProfile() {
-      const { data, error } = await supabase.from('profiles').select('*').eq('id', currentUser.id).single();
-      if (error || !data) return false;
-
-      currentProfile = data;
-      document.getElementById('my-name').innerText = data.name;
-      document.getElementById('my-code').innerText = 'ID: ' + data.user_code;
-      document.getElementById('my-avatar').src = data.avatar_url || 'https://api.dicebear.com/7.x/bottts/svg?seed=' + data.id;
-
-      await loadFriends();
-      await loadRecentChats();
-      return true;
-    }
-
-    // フレンド読み込み
-    async function loadFriends() {
-      const { data } = await supabase.from('friendships').select('friend_id, profiles!friendships_friend_id_fkey(*)').eq('user_id', currentUser.id);
-      
-      const friendList = document.getElementById('friend-list');
-      document.getElementById('friend-count').innerText = data ? data.length : 0;
-      friendList.innerHTML = '';
-
-      if(data) {
-        data.forEach(item => {
-          const p = item.profiles;
-          if (!p) return;
-          friendList.innerHTML += `
-            <div class="list-item" onclick="openTalkRoom('${p.id}', '${escapeHtml(p.name)}')">
-              <img class="chat-avatar" src="${p.avatar_url || 'https://api.dicebear.com/7.x/bottts/svg?seed=' + p.id}">
-              <div class="item-text">${escapeHtml(p.name)}</div>
-            </div>
-          `;
-        });
-      }
-    }
-
-    // トーク履歴一覧読み込み
-    async function loadRecentChats() {
-      const { data } = await supabase.from('messages')
-        .select('*, sender:profiles!messages_sender_id_fkey(*), receiver:profiles!messages_receiver_id_fkey(*)')
-        .or(`sender_id.eq.${currentUser.id},receiver_id.eq.${currentUser.id}`)
-        .order('created_at', { ascending: false });
-
-      const chatMap = new Map();
-      if(data) {
-        data.forEach(msg => {
-          const partner = msg.sender_id === currentUser.id ? msg.receiver : msg.sender;
-          if(partner && !chatMap.has(partner.id)) {
-            chatMap.set(partner.id, { partner, lastMsg: msg });
-          }
-        });
-      }
-
-      const recentContainer = document.getElementById('recent-chats-list');
-      recentContainer.innerHTML = '';
-      chatMap.forEach(item => {
-        const timeStr = new Date(item.lastMsg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-        recentContainer.innerHTML += `
-          <div class="chat-item" onclick="openTalkRoom('${item.partner.id}', '${escapeHtml(item.partner.name)}')">
-            <img class="chat-avatar" src="${item.partner.avatar_url || 'https://api.dicebear.com/7.x/bottts/svg?seed=' + item.partner.id}">
-            <div class="chat-details">
-              <div class="chat-top-row">
-                <span>${escapeHtml(item.partner.name)}</span>
-                <span class="chat-time">${timeStr}</span>
-              </div>
-              <div class="last-msg">${escapeHtml(item.lastMsg.content || '[画像]')}</div>
-            </div>
-          </div>
-        `;
-      });
-    }
-
-    // トークルームの開始
-    async function openTalkRoom(targetUserId, targetUserName) {
-      activeTargetUser = targetUserId;
-      document.getElementById('talk-user-name').innerText = targetUserName;
-
-      const talkView = document.getElementById('talk-room-view');
-      talkView.classList.add('active');
-
-      await fetchMessages();
-    }
-
-    function closeTalkRoom() {
-      activeTargetUser = null;
-      document.getElementById('talk-room-view').classList.remove('active');
-    }
-
-    // メッセージ取得・描画
-    async function fetchMessages() {
-      if(!activeTargetUser) return;
-
-      const { data } = await supabase.from('messages')
-        .select('*')
-        .or(`and(sender_id.eq.${currentUser.id},receiver_id.eq.${activeTargetUser}),and(sender_id.eq.${activeTargetUser},receiver_id.eq.${currentUser.id})`)
-        .order('created_at', { ascending: true });
-
-      const chatBody = document.getElementById('chat-body');
-      chatBody.innerHTML = '';
-
-      if(data) {
-        data.forEach(renderSingleMessage);
-      }
-      chatBody.scrollTop = chatBody.scrollHeight;
-    }
-
-    function renderSingleMessage(msg) {
-      const chatBody = document.getElementById('chat-body');
-      const isMe = msg.sender_id === currentUser.id;
-      const timeStr = new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-
-      const msgRow = document.createElement('div');
-      msgRow.className = `msg-row ${isMe ? 'me' : 'other'}`;
-      
-      let bodyContent = escapeHtml(msg.content);
-      if(msg.image_url) {
-        bodyContent += `<img src="${msg.image_url}">`;
-      }
-
-      msgRow.innerHTML = `
-        <div class="msg-wrapper">
-          <div class="bubble">${bodyContent}</div>
-          <div class="msg-meta">
-            <span class="time">${timeStr}</span>
-          </div>
-        </div>
-      `;
-      chatBody.appendChild(msgRow);
-      chatBody.scrollTop = chatBody.scrollHeight;
-    }
-
-    // メッセージ送信
-    async function sendMessage() {
-      const input = document.getElementById('msg-input');
-      const text = input.value.trim();
-      if(!text || !activeTargetUser) return;
-
-      input.value = '';
-
-      await supabase.from('messages').insert([{
-        sender_id: currentUser.id,
-        receiver_id: activeTargetUser,
-        content: text
-      }]);
-    }
-
-    // 画像アップロード & 送信
-    async function uploadAndSendImage(event) {
-      const file = event.target.files[0];
-      if(!file || !activeTargetUser) return;
-
-      const fileExt = file.name.split('.').pop();
-      const filePath = `${currentUser.id}/${Date.now()}.${fileExt}`;
-
-      const { data, error } = await supabase.storage.from('chat-media').upload(filePath, file);
-      if(error) return alert('画像のアップロードに失敗しました');
-
-      const { data: { publicUrl } } = supabase.storage.from('chat-media').getPublicUrl(filePath);
-
-      await supabase.from('messages').insert([{
-        sender_id: currentUser.id,
-        receiver_id: activeTargetUser,
-        content: '',
-        image_url: publicUrl
-      }]);
-    }
-
-    // リアルタイム通信サブスクリプション
-    function setupRealtimeSubscription() {
-      realtimeChannel = supabase.channel('public:messages')
-        .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages' }, payload => {
-          const newMsg = payload.new;
-          if (activeTargetUser && (newMsg.sender_id === activeTargetUser || newMsg.sender_id === currentUser.id)) {
-            renderSingleMessage(newMsg);
-          }
-          loadRecentChats();
-        })
-        .subscribe();
-    }
-
-    // フレンド追加機能 (ID)
-    async function addFriendByCode() {
-      const code = document.getElementById('friend-code-input').value.trim();
-      if(!code) return;
-
-      const { data: targetProfile } = await supabase.from('profiles').select('*').eq('user_code', code).single();
-      if(!targetProfile) return alert('該当するユーザーが見つかりません');
-      if(targetProfile.id === currentUser.id) return alert('自分自身は追加できません');
-
-      await executeAddFriend(targetProfile.id);
-    }
-
-    async function executeAddFriend(targetId) {
-      await supabase.from('friendships').upsert([
-        { user_id: currentUser.id, friend_id: targetId },
-        { user_id: targetId, friend_id: currentUser.id }
-      ]);
-
-      alert('フレンドを追加しました！');
-      closeModal('add-friend-modal');
-      loadFriends();
-    }
-
-    // QRコード追加 & スキャナー
-    let html5QrCode;
-    function startQrScanner() {
-      document.getElementById('qr-reader').style.display = 'block';
-      html5QrCode = new Html5Qrcode("qr-reader");
-      html5QrCode.start(
-        { facingMode: "environment" },
-        { fps: 10, qrbox: 250 },
-        async (decodedText) => {
-          html5QrCode.stop();
-          document.getElementById('qr-reader').style.display = 'none';
-          await executeAddFriend(decodedText);
-        }
-      ).catch(err => alert("カメラの起動に失敗しました"));
-    }
-
-    function showMyQrModal() {
-      document.getElementById('my-qr-modal').classList.add('active');
-      document.getElementById('qrcode').innerHTML = '';
-      new QRCode(document.getElementById("qrcode"), {
-        text: currentUser.id,
-        width: 180,
-        height: 180
-      });
-      document.getElementById('my-qr-code-text').innerText = 'ID: ' + currentProfile.user_code;
-    }
-
-    // モーダル操作 / 汎用関数
-    function showAddFriendModal() { document.getElementById('add-friend-modal').classList.add('active'); }
-    function closeModal(id) { 
-      document.getElementById(id).classList.remove('active');
-      if(html5QrCode && html5QrCode.isScanning) html5QrCode.stop();
-    }
-    function switchTab(viewId, btn) {
-      document.querySelectorAll('.view-content').forEach(v => v.classList.remove('active'));
-      document.getElementById(viewId).classList.add('active');
-      document.querySelectorAll('.nav-item').forEach(b => b.classList.remove('active'));
-      btn.classList.add('active');
-    }
-    function handleKeyPress(e) { if(e.key === 'Enter') sendMessage(); }
-    function escapeHtml(str) { return (str || '').replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m])); }
-
-    window.onload = init;
   </script>
 </body>
 </html>
