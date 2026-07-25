@@ -185,46 +185,73 @@
     let supabase, currentUser, currentProfile, activeTargetUser;
     let realtimeChannel;
 
-    // 初期化関数
+    // 初期化処理
     async function init() {
-      const res = await fetch('/api/config');
-      const config = await res.json();
-      supabase = window.supabase.createClient(config.supabaseUrl, config.supabaseAnonKey);
-
-      // URL クエリパラメータから OAuth リダイレクト結果の処理
-      const urlParams = new URLSearchParams(window.location.search);
-      const oauthUserId = urlParams.get('oauth_user_id');
-
-      if (oauthUserId) {
-        localStorage.setItem('oauth_user_id', oauthUserId);
-        window.history.replaceState({}, document.title, window.location.pathname);
-      }
-
-      const savedUserId = localStorage.getItem('oauth_user_id');
-
-      if (savedUserId) {
-        currentUser = { id: savedUserId };
-        const profileLoaded = await loadProfile();
-        if (!profileLoaded) {
-          localStorage.removeItem('oauth_user_id');
-          window.location.href = '/index.html';
-        } else {
-          setupRealtimeSubscription();
+      try {
+        const res = await fetch('/api/config');
+        const config = await res.json();
+        
+        if (!config.supabaseUrl || !config.supabaseAnonKey) {
+          alert("Supabase 設定が読み込めませんでした。.env を確認してください。");
+          return;
         }
-      } else {
-        window.location.href = '/index.html';
+
+        supabase = window.supabase.createClient(config.supabaseUrl, config.supabaseAnonKey);
+
+        // URL クエリパラメータから OAuth ユーザーIDを取得
+        const urlParams = new URLSearchParams(window.location.search);
+        const oauthUserId = urlParams.get('oauth_user_id');
+
+        if (oauthUserId) {
+          localStorage.setItem('oauth_user_id', oauthUserId);
+          // クエリ文字列を消去してURLを美しく維持
+          window.history.replaceState({}, document.title, window.location.pathname);
+        }
+
+        const savedUserId = localStorage.getItem('oauth_user_id');
+
+        if (savedUserId) {
+          currentUser = { id: savedUserId };
+          const profileLoaded = await loadProfile();
+          if (!profileLoaded) {
+            console.warn('Profile load failed. Redirecting to login...');
+            localStorage.removeItem('oauth_user_id');
+            window.location.href = '/index.html?error=profile_not_found';
+          } else {
+            setupRealtimeSubscription();
+          }
+        } else {
+          window.location.href = '/index.html';
+        }
+      } catch (err) {
+        console.error("Initialization Error:", err);
       }
     }
 
-    // プロフィール読み込み
+    // プロフィール読み込み (安全なエラー処理版)
     async function loadProfile() {
-      const { data, error } = await supabase.from('profiles').select('*').eq('id', currentUser.id).single();
-      if (error || !data) return false;
+      if (!currentUser || !currentUser.id) return false;
+
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('id', currentUser.id)
+        .maybeSingle();
+
+      if (error) {
+        console.error('Profile DB Query Error:', error.message);
+        return false;
+      }
+
+      if (!data) {
+        console.warn('Profile record not found for ID:', currentUser.id);
+        return false;
+      }
 
       currentProfile = data;
-      document.getElementById('my-name').innerText = data.name;
-      document.getElementById('my-code').innerText = 'ID: ' + data.user_code;
-      document.getElementById('my-avatar').src = data.avatar_url || 'https://api.dicebear.com/7.x/bottts/svg?seed=' + data.id;
+      document.getElementById('my-name').innerText = data.name || 'User';
+      document.getElementById('my-code').innerText = 'ID: ' + (data.user_code || '----');
+      document.getElementById('my-avatar').src = data.avatar_url || `https://api.dicebear.com/7.x/bottts/svg?seed=${data.id}`;
 
       await loadFriends();
       await loadRecentChats();
@@ -233,13 +260,21 @@
 
     // フレンド読み込み
     async function loadFriends() {
-      const { data } = await supabase.from('friendships').select('friend_id, profiles!friendships_friend_id_fkey(*)').eq('user_id', currentUser.id);
+      const { data, error } = await supabase
+        .from('friendships')
+        .select('friend_id, profiles!friendships_friend_id_fkey(*)')
+        .eq('user_id', currentUser.id);
       
+      if (error) {
+        console.error('Error loading friends:', error.message);
+        return;
+      }
+
       const friendList = document.getElementById('friend-list');
       document.getElementById('friend-count').innerText = data ? data.length : 0;
       friendList.innerHTML = '';
 
-      if(data) {
+      if (data) {
         data.forEach(item => {
           const p = item.profiles;
           if (!p) return;
@@ -255,16 +290,21 @@
 
     // トーク履歴一覧読み込み
     async function loadRecentChats() {
-      const { data } = await supabase.from('messages')
+      const { data, error } = await supabase.from('messages')
         .select('*, sender:profiles!messages_sender_id_fkey(*), receiver:profiles!messages_receiver_id_fkey(*)')
         .or(`sender_id.eq.${currentUser.id},receiver_id.eq.${currentUser.id}`)
         .order('created_at', { ascending: false });
 
+      if (error) {
+        console.error('Error loading recent chats:', error.message);
+        return;
+      }
+
       const chatMap = new Map();
-      if(data) {
+      if (data) {
         data.forEach(msg => {
           const partner = msg.sender_id === currentUser.id ? msg.receiver : msg.sender;
-          if(partner && !chatMap.has(partner.id)) {
+          if (partner && !chatMap.has(partner.id)) {
             chatMap.set(partner.id, { partner, lastMsg: msg });
           }
         });
@@ -289,7 +329,7 @@
       });
     }
 
-    // トークルームの開始
+    // トークルーム開閉
     async function openTalkRoom(targetUserId, targetUserName) {
       activeTargetUser = targetUserId;
       document.getElementById('talk-user-name').innerText = targetUserName;
@@ -309,15 +349,20 @@
     async function fetchMessages() {
       if(!activeTargetUser) return;
 
-      const { data } = await supabase.from('messages')
+      const { data, error } = await supabase.from('messages')
         .select('*')
         .or(`and(sender_id.eq.${currentUser.id},receiver_id.eq.${activeTargetUser}),and(sender_id.eq.${activeTargetUser},receiver_id.eq.${currentUser.id})`)
         .order('created_at', { ascending: true });
 
+      if (error) {
+        console.error('Error fetching messages:', error.message);
+        return;
+      }
+
       const chatBody = document.getElementById('chat-body');
       chatBody.innerHTML = '';
 
-      if(data) {
+      if (data) {
         data.forEach(renderSingleMessage);
       }
       chatBody.scrollTop = chatBody.scrollHeight;
@@ -356,11 +401,13 @@
 
       input.value = '';
 
-      await supabase.from('messages').insert([{
+      const { error } = await supabase.from('messages').insert([{
         sender_id: currentUser.id,
         receiver_id: activeTargetUser,
         content: text
       }]);
+
+      if (error) console.error('Error sending message:', error.message);
     }
 
     // 画像アップロード & 送信
@@ -371,8 +418,8 @@
       const fileExt = file.name.split('.').pop();
       const filePath = `${currentUser.id}/${Date.now()}.${fileExt}`;
 
-      const { data, error } = await supabase.storage.from('chat-media').upload(filePath, file);
-      if(error) return alert('画像のアップロードに失敗しました');
+      const { error: uploadErr } = await supabase.storage.from('chat-media').upload(filePath, file);
+      if(uploadErr) return alert('画像のアップロードに失敗しました: ' + uploadErr.message);
 
       const { data: { publicUrl } } = supabase.storage.from('chat-media').getPublicUrl(filePath);
 
@@ -384,7 +431,7 @@
       }]);
     }
 
-    // リアルタイム通信サブスクリプション
+    // Supabase Realtime サブスクリプション
     function setupRealtimeSubscription() {
       realtimeChannel = supabase.channel('public:messages')
         .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages' }, payload => {
@@ -397,30 +444,35 @@
         .subscribe();
     }
 
-    // フレンド追加機能 (ID)
+    // フレンド追加 (ID検索)
     async function addFriendByCode() {
       const code = document.getElementById('friend-code-input').value.trim();
       if(!code) return;
 
-      const { data: targetProfile } = await supabase.from('profiles').select('*').eq('user_code', code).single();
-      if(!targetProfile) return alert('該当するユーザーが見つかりません');
+      const { data: targetProfile, error } = await supabase.from('profiles').select('*').eq('user_code', code).maybeSingle();
+      if(error || !targetProfile) return alert('該当するユーザーが見つかりません');
       if(targetProfile.id === currentUser.id) return alert('自分自身は追加できません');
 
       await executeAddFriend(targetProfile.id);
     }
 
     async function executeAddFriend(targetId) {
-      await supabase.from('friendships').upsert([
+      const { error } = await supabase.from('friendships').upsert([
         { user_id: currentUser.id, friend_id: targetId },
         { user_id: targetId, friend_id: currentUser.id }
       ]);
+
+      if (error) {
+        alert('フレンド追加に失敗しました: ' + error.message);
+        return;
+      }
 
       alert('フレンドを追加しました！');
       closeModal('add-friend-modal');
       loadFriends();
     }
 
-    // QRコード追加 & スキャナー
+    // QRコード処理
     let html5QrCode;
     function startQrScanner() {
       document.getElementById('qr-reader').style.display = 'block';
@@ -433,7 +485,7 @@
           document.getElementById('qr-reader').style.display = 'none';
           await executeAddFriend(decodedText);
         }
-      ).catch(err => alert("カメラの起動に失敗しました"));
+      ).catch(() => alert("カメラの起動に失敗しました"));
     }
 
     function showMyQrModal() {
@@ -444,10 +496,10 @@
         width: 180,
         height: 180
       });
-      document.getElementById('my-qr-code-text').innerText = 'ID: ' + currentProfile.user_code;
+      document.getElementById('my-qr-code-text').innerText = 'ID: ' + (currentProfile ? currentProfile.user_code : '----');
     }
 
-    // モーダル操作 / 汎用関数
+    // モーダル & UI ユーティリティ
     function showAddFriendModal() { document.getElementById('add-friend-modal').classList.add('active'); }
     function closeModal(id) { 
       document.getElementById(id).classList.remove('active');
