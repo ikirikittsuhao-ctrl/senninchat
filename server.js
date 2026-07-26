@@ -12,7 +12,7 @@ const PORT = process.env.PORT || 3000;
 const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY;
 const supabase = createClient(process.env.SUPABASE_URL, supabaseKey);
 
-// 認証サーバーの設定 (環境変数を優先しつつデフォルト値を維持)
+// OAuth設定（.env から読み込み、未設定時はデフォルト値）
 const OAUTH_CONFIG = {
   providerUrl: process.env.OAUTH_PROVIDER_URL || 'https://sennin-acount.onrender.com',
   clientId: process.env.OAUTH_CLIENT_ID || 'client_89f7dcfbd6e397a2',
@@ -24,7 +24,7 @@ app.use(cors());
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
 
-// 設定取得エンドポイント
+// フロントエンド用設定共有 API
 app.get('/api/config', (req, res) => {
   res.json({
     supabaseUrl: process.env.SUPABASE_URL,
@@ -33,7 +33,7 @@ app.get('/api/config', (req, res) => {
   });
 });
 
-// 1. OAuth ログイン開始 (認可画面へリダイレクト)
+// 1. OAuth ログイン開始
 app.get('/api/auth/login', (req, res) => {
   const authorizeUrl = new URL(`${OAUTH_CONFIG.providerUrl}/oauth/authorize`);
   authorizeUrl.searchParams.append('response_type', 'code');
@@ -43,17 +43,17 @@ app.get('/api/auth/login', (req, res) => {
   res.redirect(authorizeUrl.toString());
 });
 
-// 2. OAuth コールバック処理
+// 2. OAuth コールバック
 app.get('/api/auth/callback', async (req, res) => {
   const { code, error } = req.query;
 
   if (error || !code) {
-    console.error('OAuth Code Error or Rejected:', error);
+    console.error('OAuth Code Error:', error);
     return res.redirect('/index.html?error=oauth_code_failed');
   }
 
   try {
-    // (A) アクセストークンの取得
+    // (A) アクセストークン取得
     const tokenResponse = await fetch(`${OAUTH_CONFIG.providerUrl}/oauth/token`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
@@ -73,14 +73,9 @@ app.get('/api/auth/callback', async (req, res) => {
       return res.redirect('/index.html?error=token_exchange_failed');
     }
 
-    const accessToken = tokenData.access_token;
-
-    // (B) ユーザー情報の取得 (/oauth/userinfo)
+    // (B) ユーザー情報取得
     const userinfoResponse = await fetch(`${OAUTH_CONFIG.providerUrl}/oauth/userinfo`, {
-      method: 'GET',
-      headers: {
-        'Authorization': `Bearer ${accessToken}`
-      }
+      headers: { Authorization: `Bearer ${tokenData.access_token}` }
     });
 
     const oauthUser = await userinfoResponse.json();
@@ -90,8 +85,7 @@ app.get('/api/auth/callback', async (req, res) => {
       return res.redirect('/index.html?error=userinfo_failed');
     }
 
-    // (C) UUID 形式の検証・決定論的生成
-    // Supabaseの `id` (UUID形式) に統一するため、文字列をハッシュ化して整形
+    // (C) UUID 形式のチェック & 決定論的UUIDv4生成
     let validUserId = String(oauthUser.id || oauthUser.sub || '');
     const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-5][0-9a-f]{3}-[089ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
     
@@ -100,12 +94,13 @@ app.get('/api/auth/callback', async (req, res) => {
       validUserId = `${hexHash.substr(0,8)}-${hexHash.substr(8,4)}-4${hexHash.substr(13,3)}-a${hexHash.substr(17,3)}-${hexHash.substr(20,12)}`;
     }
 
-    // (D) プロフィール項目の抽出とフォールバック
+    // (D) プロフィール項目の準備
+    const rawIdStr = String(oauthUser.id || oauthUser.sub || '0000');
+    const userCode = 'USER-' + rawIdStr.substring(0, 4).toUpperCase();
     const userName = oauthUser.username || oauthUser.name || (oauthUser.email ? oauthUser.email.split('@')[0] : 'User');
-    const userCode = 'USER-' + String(oauthUser.id || '0000').substring(0, 4).toUpperCase();
     const avatarUrl = oauthUser.avatarUrl || oauthUser.avatar || `https://api.dicebear.com/7.x/bottts/svg?seed=${validUserId}`;
 
-    // (E) Profiles テーブルヘ Upsert 処理 (Service Role Key を使用)
+    // (E) Supabase profiles テーブルヘ登録 / 更新 (Service Role Keyで実行)
     const { error: profileError } = await supabase.from('profiles').upsert([
       {
         id: validUserId,
@@ -120,15 +115,15 @@ app.get('/api/auth/callback', async (req, res) => {
       console.error('Profile Upsert Error:', profileError);
     }
 
-    // (F) ログイン完了後、アプリ画面 (/app.html) へリダイレクト
+    // (F) アプリ画面 (/app.html) へユーザーID付きでリダイレクト
     res.redirect(`/app.html?oauth_user_id=${encodeURIComponent(validUserId)}`);
 
   } catch (err) {
-    console.error('OAuth Callback Critical Error:', err);
+    console.error('OAuth Callback Error:', err);
     res.redirect('/index.html?error=server_error');
   }
 });
 
 app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
+  console.log(`Server running at http://localhost:${PORT}`);
 });
