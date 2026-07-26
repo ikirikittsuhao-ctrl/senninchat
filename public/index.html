@@ -3,75 +3,302 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Line Style App - ログイン</title>
+  <title>LINE風 OAuth チャット</title>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <style>
-    :root {
-      --primary-accent: #4A90E2;
-      --border-color: #E2E8F0;
-      --text-sub: #64748B;
-      --font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background-color: #7494c0; /* LINEトーク画面特有の背景色 */
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      height: 100vh;
     }
 
-    * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
-    html, body { width: 100%; height: 100%; overflow: hidden; font-family: var(--font-family); background-color: #FFFFFF; }
+    /* ログイン前のコンテナ */
+    .login-container {
+      background: #ffffff;
+      padding: 40px;
+      border-radius: 12px;
+      text-align: center;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+    }
+    .login-btn {
+      display: inline-block;
+      margin-top: 20px;
+      padding: 12px 24px;
+      background-color: #06c755; /* LINEグリーン */
+      color: #fff;
+      font-weight: bold;
+      text-decoration: none;
+      border-radius: 6px;
+      font-size: 1rem;
+    }
 
-    /* Auth Screen */
-    #auth-screen { 
-      position: absolute; 
-      inset: 0; 
-      background: #FFFFFF; 
-      z-index: 1000; 
-      display: flex; 
-      flex-direction: column; 
-      justify-content: center; 
-      align-items: center; 
-      padding: 24px; 
-      gap: 16px; 
+    /* チャット画面コンテナ */
+    .chat-container {
+      width: 100%;
+      max-width: 480px;
+      height: 100vh;
+      max-height: 800px;
+      background: #7494c0;
+      display: flex;
+      flex-direction: column;
+      box-shadow: 0 8px 24px rgba(0,0,0,0.2);
     }
-    #auth-screen button { 
-      width: 100%; 
-      max-width: 320px; 
-      padding: 14px; 
-      background: #4F46E5; 
-      color: white; 
-      border: none; 
-      border-radius: 8px; 
-      font-weight: bold; 
-      font-size: 15px; 
-      cursor: pointer; 
+
+    /* ヘッダー */
+    .chat-header {
+      background-color: #273238;
+      color: #ffffff;
+      padding: 16px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
     }
+    .user-profile {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .user-profile img {
+      width: 36px;
+      height: 36px;
+      border-radius: 50%;
+      object-fit: cover;
+    }
+    .logout-link {
+      color: #94a3b8;
+      text-decoration: none;
+      font-size: 0.85rem;
+    }
+
+    /* メッセージ一覧エリア */
+    .chat-messages {
+      flex: 1;
+      padding: 16px;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    /* メッセージバブルデザイン */
+    .message-row {
+      display: flex;
+      gap: 8px;
+      align-items: flex-end;
+      max-width: 80%;
+    }
+    .message-row.mine {
+      align-self: flex-end;
+      flex-direction: row-reverse;
+    }
+    .avatar {
+      width: 36px;
+      height: 36px;
+      border-radius: 50%;
+      align-self: flex-start;
+    }
+    .message-content {
+      display: flex;
+      flex-direction: column;
+    }
+    .sender-name {
+      font-size: 0.75rem;
+      color: #ffffff;
+      margin-bottom: 2px;
+    }
+    .bubble {
+      background-color: #ffffff;
+      padding: 10px 14px;
+      border-radius: 16px;
+      font-size: 0.95rem;
+      color: #0f172a;
+      word-break: break-all;
+      position: relative;
+    }
+    .mine .bubble {
+      background-color: #8de055; /* 自分のメッセージ用緑バブル */
+    }
+    .time {
+      font-size: 0.65rem;
+      color: #e2e8f0;
+      margin: 0 4px;
+    }
+
+    /* 入力フォームエリア */
+    .chat-input-area {
+      background-color: #ffffff;
+      padding: 12px;
+      display: flex;
+      gap: 8px;
+    }
+    .chat-input-area input {
+      flex: 1;
+      padding: 10px 14px;
+      border: 1px solid #cbd5e1;
+      border-radius: 20px;
+      outline: none;
+      font-size: 0.95rem;
+    }
+    .chat-input-area button {
+      background-color: #06c755;
+      color: white;
+      border: none;
+      padding: 0 16px;
+      border-radius: 20px;
+      font-weight: bold;
+      cursor: pointer;
+    }
+
+    .hidden { display: none !important; }
   </style>
 </head>
 <body>
 
-  <!-- ログイン / 会員登録画面 (OAuth 2.0 対応) -->
-  <div id="auth-screen">
-    <h2>LINE Clone Login</h2>
-    <p style="font-size: 13px; color: var(--text-sub); text-align: center;">
-      認証プロバイダー (https://sennin-acount.onrender.com/) を利用してログインします。
-    </p>
-    <button onclick="handleOAuthLogin()">
-      OAuth 2.0 でログイン
-    </button>
+  <!-- 未ログイン画面 -->
+  <div id="loginScreen" class="login-container">
+    <h2>OAuth 2.0 チャットアプリ</h2>
+    <p style="margin-top: 8px; color: #64748b;">ログインしてチャットを開始してください</p>
+    <a href="/auth/login" class="login-btn">OAuth 2.0 でログイン</a>
   </div>
 
-  <script>
-    // 既にログイン済みの場合はメイン画面へリダイレクト
-    window.onload = () => {
-      const savedUserId = localStorage.getItem('oauth_user_id');
-      if (savedUserId) {
-        window.location.href = '/app.html';
-      }
-    };
+  <!-- ログイン後のチャット画面 -->
+  <div id="chatScreen" class="chat-container hidden">
+    <div class="chat-header">
+      <div class="user-profile">
+        <img id="myAvatar" src="" alt="Avatar">
+        <span id="myUsername" style="font-weight: bold;"></span>
+      </div>
+      <a href="/auth/logout" class="logout-link">ログアウト</a>
+    </div>
 
-    // OAuth ログイン開始リダイレクト
-    function handleOAuthLogin() {
-      window.location.href = '/api/auth/login';
+    <div id="messageList" class="chat-messages"></div>
+
+    <form id="chatForm" class="chat-input-area">
+      <input type="text" id="msgInput" placeholder="メッセージを入力..." autocomplete="off" required>
+      <button type="submit">送信</button>
+    </form>
+  </div>
+
+<script>
+  let currentUser = null;
+  let supabase = null;
+
+  async function init() {
+    // ログイン状態確認
+    const res = await fetch('/api/me');
+    const data = await res.json();
+
+    if (!data.authenticated) {
+      document.getElementById('loginScreen').classList.remove('hidden');
+      return;
     }
 
-    // 従来のローカル認証ハンドラー (OAuthへ移行)
-    async function handleSignUp() { handleOAuthLogin(); }
-    async function handleLogin() { handleOAuthLogin(); }
-  </script>
+    currentUser = data.user;
+    document.getElementById('chatScreen').classList.remove('hidden');
+    document.getElementById('myAvatar').src = currentUser.avatarUrl;
+    document.getElementById('myUsername').textContent = currentUser.username;
+
+    // Supabase クライアント初期化
+    supabase = supabase.createClient(data.supabaseConfig.url, data.supabaseConfig.key);
+
+    // 既存メッセージの読み込み
+    loadMessages();
+
+    // リアルタイムリスナーのセットアップ
+    supabase
+      .channel('public:messages')
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages' }, payload => {
+        renderMessage(payload.new);
+        scrollToBottom();
+      })
+      .subscribe();
+  }
+
+  // 過去メッセージ取得
+  async function loadMessages() {
+    const { data: messages, error } = await supabase
+      .from('messages')
+      .select('*')
+      .order('created_at', { ascending: true });
+
+    if (error) {
+      console.error(error);
+      return;
+    }
+
+    const messageList = document.getElementById('messageList');
+    messageList.innerHTML = '';
+    messages.forEach(renderMessage);
+    scrollToBottom();
+  }
+
+  // メッセージ要素の描画（LINE風レイアウト）
+  function renderMessage(msg) {
+    const messageList = document.getElementById('messageList');
+    const isMine = String(msg.user_id) === String(currentUser.id);
+
+    const row = document.createElement('div');
+    row.className = `message-row ${isMine ? 'mine' : ''}`;
+
+    const date = new Date(msg.created_at);
+    const timeStr = `${date.getHours().toString().padStart(2, '0')}:${date.getMinutes().toString().padStart(2, '0')}`;
+
+    row.innerHTML = `
+      ${!isMine ? `<img class="avatar" src="${msg.avatar_url}" alt="">` : ''}
+      <div class="message-content">
+        ${!isMine ? `<span class="sender-name">${escapeHtml(msg.username)}</span>` : ''}
+        <div style="display: flex; align-items: flex-end; ${isMine ? 'flex-direction: row-reverse;' : ''}">
+          <div class="bubble">${escapeHtml(msg.content)}</div>
+          <span class="time">${timeStr}</span>
+        </div>
+      </div>
+    `;
+
+    messageList.appendChild(row);
+  }
+
+  // メッセージ送信
+  document.getElementById('chatForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const input = document.getElementById('msgInput');
+    const content = input.value.trim();
+
+    if (!content) return;
+
+    input.value = '';
+
+    const { error } = await supabase.from('messages').insert([
+      {
+        user_id: currentUser.id,
+        username: currentUser.username,
+        avatar_url: currentUser.avatarUrl,
+        content: content
+      }
+    ]);
+
+    if (error) console.error('送信エラー:', error);
+  });
+
+  function scrollToBottom() {
+    const messageList = document.getElementById('messageList');
+    messageList.scrollTop = messageList.scrollHeight;
+  }
+
+  function escapeHtml(str) {
+    return str.replace(/[&<>'"]/g, 
+      tag => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' }[tag] || tag)
+    );
+  }
+
+  init();
+</script>
 </body>
 </html>
