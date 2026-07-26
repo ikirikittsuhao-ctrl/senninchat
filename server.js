@@ -1,3 +1,4 @@
+
 const express = require('express');
 const session = require('express-session');
 const axios = require('axios');
@@ -6,21 +7,22 @@ require('dotenv').config();
 
 const app = express();
 
-// Renderなどのリバースプロキシ（HTTPS）配下でセッションを正しく扱う設定
+// Render等のプロキシヘッダー（X-Forwarded-Protoなど）を信頼する設定
 app.set('trust proxy', 1);
 
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// セッション設定
+// セッション設定の最適化
 app.use(session({
   secret: process.env.SESSION_SECRET || 'fallback-super-secret-key-2026',
   resave: false,
   saveUninitialized: false,
   cookie: {
-    // Render上の本番環境では https でクッキーを送受信
+    // Render上の本番環境(HTTPS)では secure: true、ローカル(HTTP)では false
     secure: process.env.NODE_ENV === 'production' || process.env.RENDER === 'true',
     sameSite: 'lax',
+    httpOnly: true,
     maxAge: 24 * 60 * 60 * 1000 // 24時間
   }
 }));
@@ -49,7 +51,7 @@ app.get('/auth/login', (req, res) => {
   res.redirect(authorizeUrl);
 });
 
-// 2. コールバック処理
+// 2. コールバック処理（確実にセッションを保存してからリダイレクト）
 app.get('/api/auth/callback', async (req, res) => {
   const { code, error } = req.query;
 
@@ -81,7 +83,7 @@ app.get('/api/auth/callback', async (req, res) => {
       headers: { 'Authorization': `Bearer ${accessToken}` }
     });
 
-    // セッションにユーザー情報を保存
+    // セッションにユーザー情報をセット
     req.session.user = {
       id: userRes.data.id,
       username: userRes.data.username,
@@ -89,7 +91,16 @@ app.get('/api/auth/callback', async (req, res) => {
       avatarUrl: userRes.data.avatarUrl || 'https://www.gravatar.com/avatar/00000000000000000000000000000000?d=mp&f=y'
     };
 
-    res.redirect('/');
+    // ★重要: セッションの保存が完了してからリダイレクトさせる
+    req.session.save((err) => {
+      if (err) {
+        console.error('セッション保存エラー:', err);
+        return res.status(500).send('セッションの保存に失敗しました。');
+      }
+      console.log('セッション保存成功:', req.session.user.username);
+      res.redirect('/');
+    });
+
   } catch (err) {
     console.error('=== OAuth Error Details ===');
     if (err.response) {
@@ -104,7 +115,7 @@ app.get('/api/auth/callback', async (req, res) => {
 
 // 3. ログイン状態確認 ＆ フロントエンド設定出力
 app.get('/api/me', (req, res) => {
-  if (!req.session.user) {
+  if (!req.session || !req.session.user) {
     return res.status(401).json({ authenticated: false });
   }
   res.json({
