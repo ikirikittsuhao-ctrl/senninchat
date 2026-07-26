@@ -59,7 +59,8 @@ app.get('/api/auth/callback', async (req, res) => {
         grant_type: 'authorization_code',
         client_id: OAUTH_CONFIG.clientId,
         client_secret: OAUTH_CONFIG.clientSecret,
-        code: String(code)
+        code: String(code),
+        redirect_uri: OAUTH_CONFIG.redirectUri
       })
     });
 
@@ -90,16 +91,17 @@ app.get('/api/auth/callback', async (req, res) => {
       validUserId = `${validUserId.substr(0,8)}-${validUserId.substr(8,4)}-4${validUserId.substr(13,3)}-a${validUserId.substr(17,3)}-${validUserId.substr(20,12)}`;
     }
 
-    // 4. Profiles に登録 / 更新
+    // 4. Profiles に登録 / 更新 (SERVICE_ROLE_KEYで実行されるためRLS突破)
     const userCode = 'USER-' + String(oauthUser.id).substring(0, 4).toUpperCase();
     const userName = oauthUser.username || (oauthUser.email ? oauthUser.email.split('@')[0] : 'User');
+    const avatarUrl = oauthUser.avatarUrl || `https://api.dicebear.com/7.x/bottts/svg?seed=${validUserId}`;
 
     const { error: profileError } = await supabase.from('profiles').upsert([
       {
         id: validUserId,
         name: userName,
         user_code: userCode,
-        avatar_url: `https://api.dicebear.com/7.x/bottts/svg?seed=${validUserId}`
+        avatar_url: avatarUrl
       }
     ], { onConflict: 'id' });
 
