@@ -6,32 +6,50 @@ require('dotenv').config();
 
 const app = express();
 
-// Renderなどのリバースプロキシ配下でセッションを正しく扱う設定
+// Renderなどのリバースプロキシ（HTTPS）配下でセッションを正しく扱う設定
 app.set('trust proxy', 1);
 
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// セッション設定 (SESSION_SECRET が未設定の場合のフォールバックを追加)
+// セッション設定
 app.use(session({
   secret: process.env.SESSION_SECRET || 'fallback-super-secret-key-2026',
   resave: false,
   saveUninitialized: false,
   cookie: {
-    secure: process.env.NODE_ENV === 'production', // 本番(HTTPS)環境で自動的にクッキーを保護
-    maxAge: 24 * 60 * 60 * 1000 // 24時間保持
+    // Render上の本番環境では https でクッキーを送受信
+    secure: process.env.NODE_ENV === 'production' || process.env.RENDER === 'true',
+    sameSite: 'lax',
+    maxAge: 24 * 60 * 60 * 1000 // 24時間
   }
 }));
 
 app.use(express.static(path.join(__dirname, 'public')));
 
+// AUTH_SERVER の末尾スラッシュ（/）を除去して整形する関数
+const getAuthServer = () => {
+  const server = process.env.AUTH_SERVER || 'https://sennin-acount.onrender.com';
+  return server.replace(/\/+$/, '');
+};
+
 // 1. 認可リクエストへのリダイレクト
 app.get('/auth/login', (req, res) => {
-  const authorizeUrl = `${process.env.AUTH_SERVER}/oauth/authorize?response_type=code&client_id=${encodeURIComponent(process.env.CLIENT_ID)}&redirect_uri=${encodeURIComponent(process.env.REDIRECT_URI)}`;
+  const authServer = getAuthServer();
+  const clientId = process.env.CLIENT_ID;
+  const redirectUri = process.env.REDIRECT_URI;
+
+  if (!clientId || !redirectUri) {
+    return res.status(500).send('環境変数 CLIENT_ID または REDIRECT_URI が設定されていません。');
+  }
+
+  const authorizeUrl = `${authServer}/oauth/authorize?response_type=code&client_id=${encodeURIComponent(clientId)}&redirect_uri=${encodeURIComponent(redirectUri)}`;
+  
+  console.log('Redirecting to:', authorizeUrl);
   res.redirect(authorizeUrl);
 });
 
-// 2. コールバック処理（REDIRECT_URI = https://senninchat9ok.onrender.com/api/auth/callback に対応）
+// 2. コールバック処理
 app.get('/api/auth/callback', async (req, res) => {
   const { code, error } = req.query;
 
@@ -41,7 +59,9 @@ app.get('/api/auth/callback', async (req, res) => {
   }
 
   try {
-    // (A) トークン取得リクエスト (Client Secretをサーバー間通信で保持)
+    const authServer = getAuthServer();
+
+    // (A) トークン取得リクエスト
     const tokenParams = new URLSearchParams({
       grant_type: 'authorization_code',
       client_id: process.env.CLIENT_ID,
@@ -50,14 +70,14 @@ app.get('/api/auth/callback', async (req, res) => {
       redirect_uri: process.env.REDIRECT_URI
     });
 
-    const tokenRes = await axios.post(`${process.env.AUTH_SERVER}/oauth/token`, tokenParams.toString(), {
+    const tokenRes = await axios.post(`${authServer}/oauth/token`, tokenParams.toString(), {
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
     });
 
     const accessToken = tokenRes.data.access_token;
 
     // (B) ユーザー情報取得リクエスト
-    const userRes = await axios.get(`${process.env.AUTH_SERVER}/oauth/userinfo`, {
+    const userRes = await axios.get(`${authServer}/oauth/userinfo`, {
       headers: { 'Authorization': `Bearer ${accessToken}` }
     });
 
@@ -69,7 +89,6 @@ app.get('/api/auth/callback', async (req, res) => {
       avatarUrl: userRes.data.avatarUrl || 'https://www.gravatar.com/avatar/00000000000000000000000000000000?d=mp&f=y'
     };
 
-    // ログイン成功後、トップ画面へリダイレクト
     res.redirect('/');
   } catch (err) {
     console.error('=== OAuth Error Details ===');
@@ -83,7 +102,7 @@ app.get('/api/auth/callback', async (req, res) => {
   }
 });
 
-// 3. ログイン状態確認 ＆ フロントエンド側（index.html）に必要な設定を渡すAPI
+// 3. ログイン状態確認 ＆ フロントエンド設定出力
 app.get('/api/me', (req, res) => {
   if (!req.session.user) {
     return res.status(401).json({ authenticated: false });
@@ -93,7 +112,7 @@ app.get('/api/me', (req, res) => {
     user: req.session.user,
     supabaseConfig: {
       url: process.env.SUPABASE_URL,
-      key: process.env.SUPABASE_ANON_KEY // フロントエンド用には ANON KEY のみを渡します
+      key: process.env.SUPABASE_ANON_KEY
     }
   });
 });
