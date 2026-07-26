@@ -187,43 +187,61 @@
 
     // 初期化関数
     async function init() {
-      const res = await fetch('/api/config');
-      const config = await res.json();
-      supabase = window.supabase.createClient(config.supabaseUrl, config.supabaseAnonKey);
+      try {
+        const res = await fetch('/api/config');
+        const config = await res.json();
+        supabase = window.supabase.createClient(config.supabaseUrl, config.supabaseAnonKey);
 
-      // URL クエリパラメータから OAuth リダイレクト結果の処理
-      const urlParams = new URLSearchParams(window.location.search);
-      const oauthUserId = urlParams.get('oauth_user_id');
+        // URL クエリパラメータから OAuth リダイレクト結果の処理
+        const urlParams = new URLSearchParams(window.location.search);
+        const oauthUserId = urlParams.get('oauth_user_id');
 
-      if (oauthUserId) {
-        localStorage.setItem('oauth_user_id', oauthUserId);
-        window.history.replaceState({}, document.title, window.location.pathname);
-      }
-
-      const savedUserId = localStorage.getItem('oauth_user_id');
-
-      if (savedUserId) {
-        currentUser = { id: savedUserId };
-        const profileLoaded = await loadProfile();
-        if (!profileLoaded) {
-          localStorage.removeItem('oauth_user_id');
-          window.location.href = '/index.html';
-        } else {
-          setupRealtimeSubscription();
+        if (oauthUserId) {
+          localStorage.setItem('oauth_user_id', oauthUserId);
+          window.history.replaceState({}, document.title, window.location.pathname);
         }
-      } else {
+
+        const savedUserId = localStorage.getItem('oauth_user_id');
+
+        if (savedUserId) {
+          currentUser = { id: savedUserId };
+          const profileLoaded = await loadProfile();
+          if (!profileLoaded) {
+            localStorage.removeItem('oauth_user_id');
+            window.location.href = '/index.html';
+          } else {
+            setupRealtimeSubscription();
+          }
+        } else {
+          window.location.href = '/index.html';
+        }
+      } catch (e) {
+        console.error('Init Failed:', e);
         window.location.href = '/index.html';
       }
     }
 
     // プロフィール読み込み
     async function loadProfile() {
-      const { data, error } = await supabase.from('profiles').select('*').eq('id', currentUser.id).maybeSingle();
-      if (error || !data) return false;
+      let attempts = 0;
+      let data = null;
+
+      // DB登録完了のタイムラグを考慮したリトライ処理
+      while (attempts < 5) {
+        const res = await supabase.from('profiles').select('*').eq('id', currentUser.id).maybeSingle();
+        if (res.data) {
+          data = res.data;
+          break;
+        }
+        await new Promise(resolve => setTimeout(resolve, 500));
+        attempts++;
+      }
+
+      if (!data) return false;
 
       currentProfile = data;
-      document.getElementById('my-name').innerText = data.name;
-      document.getElementById('my-code').innerText = 'ID: ' + data.user_code;
+      document.getElementById('my-name').innerText = data.name || 'ユーザー';
+      document.getElementById('my-code').innerText = 'ID: ' + (data.user_code || '----');
       document.getElementById('my-avatar').src = data.avatar_url || 'https://api.dicebear.com/7.x/bottts/svg?seed=' + data.id;
 
       await loadFriends();
@@ -233,13 +251,16 @@
 
     // フレンド読み込み
     async function loadFriends() {
-      const { data } = await supabase.from('friendships').select('friend_id, profiles!friendships_friend_id_fkey(*)').eq('user_id', currentUser.id);
+      const { data, error } = await supabase
+        .from('friendships')
+        .select('friend_id, profiles!friendships_friend_id_fkey(*)')
+        .eq('user_id', currentUser.id);
       
       const friendList = document.getElementById('friend-list');
       document.getElementById('friend-count').innerText = data ? data.length : 0;
       friendList.innerHTML = '';
 
-      if(data) {
+      if (data && data.length > 0) {
         data.forEach(item => {
           const p = item.profiles;
           if (!p) return;
@@ -250,6 +271,8 @@
             </div>
           `;
         });
+      } else {
+        friendList.innerHTML = '<div style="padding:20px; text-align:center; color:var(--text-sub); font-size:13px;">友達がまだいません</div>';
       }
     }
 
@@ -272,21 +295,25 @@
 
       const recentContainer = document.getElementById('recent-chats-list');
       recentContainer.innerHTML = '';
-      chatMap.forEach(item => {
-        const timeStr = new Date(item.lastMsg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-        recentContainer.innerHTML += `
-          <div class="chat-item" onclick="openTalkRoom('${item.partner.id}', '${escapeHtml(item.partner.name)}')">
-            <img class="chat-avatar" src="${item.partner.avatar_url || 'https://api.dicebear.com/7.x/bottts/svg?seed=' + item.partner.id}">
-            <div class="chat-details">
-              <div class="chat-top-row">
-                <span>${escapeHtml(item.partner.name)}</span>
-                <span class="chat-time">${timeStr}</span>
+      if (chatMap.size > 0) {
+        chatMap.forEach(item => {
+          const timeStr = new Date(item.lastMsg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+          recentContainer.innerHTML += `
+            <div class="chat-item" onclick="openTalkRoom('${item.partner.id}', '${escapeHtml(item.partner.name)}')">
+              <img class="chat-avatar" src="${item.partner.avatar_url || 'https://api.dicebear.com/7.x/bottts/svg?seed=' + item.partner.id}">
+              <div class="chat-details">
+                <div class="chat-top-row">
+                  <span>${escapeHtml(item.partner.name)}</span>
+                  <span class="chat-time">${timeStr}</span>
+                </div>
+                <div class="last-msg">${escapeHtml(item.lastMsg.content || '[画像]')}</div>
               </div>
-              <div class="last-msg">${escapeHtml(item.lastMsg.content || '[画像]')}</div>
             </div>
-          </div>
-        `;
-      });
+          `;
+        });
+      } else {
+        recentContainer.innerHTML = '<div style="padding:20px; text-align:center; color:var(--text-sub); font-size:13px;">トーク履歴はありません</div>';
+      }
     }
 
     // トークルームの開始
@@ -402,7 +429,7 @@
       const code = document.getElementById('friend-code-input').value.trim();
       if(!code) return;
 
-      const { data: targetProfile } = await supabase.from('profiles').select('*').eq('user_code', code).maybeSingle();
+      const { data: targetProfile } = await supabase.from('profiles').select('*').eq('user_code', code).single();
       if(!targetProfile) return alert('該当するユーザーが見つかりません');
       if(targetProfile.id === currentUser.id) return alert('自分自身は追加できません');
 
@@ -417,7 +444,7 @@
 
       alert('フレンドを追加しました！');
       closeModal('add-friend-modal');
-      loadFriends();
+      await loadFriends();
     }
 
     // QRコード追加 & スキャナー
@@ -444,7 +471,7 @@
         width: 180,
         height: 180
       });
-      document.getElementById('my-qr-code-text').innerText = 'ID: ' + currentProfile.user_code;
+      document.getElementById('my-qr-code-text').innerText = 'ID: ' + (currentProfile ? currentProfile.user_code : '----');
     }
 
     // モーダル操作 / 汎用関数
